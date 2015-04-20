@@ -10,7 +10,7 @@ var Buffer = require('buffer').Buffer;
 var Promise = require('es6-promise').Promise;
 
 function Socket(type, listener, host, io_options) {
-  console.log('Create new Socket', type, host);
+  console.log('Create new Socket', type, host, listener);
 
   events.EventEmitter.call(this);
 
@@ -25,11 +25,6 @@ function Socket(type, listener, host, io_options) {
   if (typeof listener === 'function')
     this.on('message', listener);
 
-  //args swap
-  if(typeof listener === 'string') {
-    host = listener;
-    io_options = host;
-  }
 }
 util.inherits(Socket, events.EventEmitter);
 
@@ -83,10 +78,19 @@ Socket.prototype.bind = function(/* options[, callback] or port[, address][, cal
           function (result) {
             console.log('Chrome: socket bound', result);
 
-            // Add listener for incoming UDP messages
-            self._attachIncomingListeners();
+            chrome.sockets.udp.getInfo(
+              self._socketId,
+              function (socketInfo) {
+                console.log('Chrome: socket info');
+                self._address = socketInfo.localAddress;
+                self._port = socketInfo.localPort;
 
-            resolve();
+                // Add listener for incoming UDP messages
+                self._attachIncomingListeners();
+
+                resolve();
+              }
+            );
           }
         );
       }
@@ -123,7 +127,7 @@ Socket.prototype._send = function(buffer, offset, length, port, address, callbac
 
   chrome.sockets.udp.send(
     this._socketId,
-    /* ArrayBuffer */ buffer.toArrayBuffer(),
+    buffer.buffer,
     address,
     port,
     function (sendInfo) {
@@ -137,17 +141,25 @@ Socket.prototype._send = function(buffer, offset, length, port, address, callbac
 
 
 Socket.prototype.close = function() {
-  chrome.sockets.udp.close(this._socketId/*, function callback*/);
-  this.removeAllListeners();
-  this.emit('close');
+  var socketCloseHandler = function () {
+    this.emit('close');
+    this._detachIncomingListeners();
+    this.removeAllListeners();
+  }.bind(this);
+
+  chrome.sockets.udp.close(this._socketId, socketCloseHandler);
 };
 
 
 Socket.prototype.address = function() {
   if(! this._address)
-    throw new Error('not bound');
+    throw new Error('Socket#address() - not bound');
 
-  return this._address;
+  return {
+    address: this._address,
+    port: this._port,
+    family: null /* No implemented */
+  };
 };
 
 
@@ -233,18 +245,31 @@ Socket.prototype.dropMembership = function(multicastAddress, interfaceAddress) {
 };
 
 Socket.prototype._attachIncomingListeners = function() {
-  chrome.sockets.udp.onReceive.addListener(this._handleIncomingData.bind(this));
-  chrome.sockets.udp.onReceiveError.addListener(this._handleIncomingErrorData.bind(this));
+  // Bind listeners to `this` object
+  this._handleIncomingDataListener = this._handleIncomingData.bind(this);
+  this._handleIncomingErrorDataListener = this._handleIncomingErrorData.bind(this);
+
+  // Attach listeners
+  chrome.sockets.udp.onReceive.addListener(this._handleIncomingDataListener);
+  chrome.sockets.udp.onReceiveError.addListener(this._handleIncomingErrorDataListener);
+
+  // Fire event
   console.log('emit listeners');
   this.emit('listening');
 };
 
-Socket.prototype._handleIncomingData = function(socketId, data, remoteAddress, remotePort) {
+Socket.prototype._detachIncomingListeners = function() {
+  chrome.sockets.udp.onReceive.removeListener(this._handleIncomingDataListener);
+  chrome.sockets.udp.onReceiveError.removeListener(this._handleIncomingErrorDataListener);
+};
+
+Socket.prototype._handleIncomingData = function(info) {
+  console.log('_handleIncomingData', info.data, info.data.length);
   if (this._socketId == null) {
     throw new Error('can\'t filter incoming data since no socketid');
   }
-  if (this._socketId !== socketId) { return; }
-  this.emit('message', data, { address: remoteAddress, port: remotePort });
+  if (this._socketId !== info.socketId) { return; }
+  this.emit('message', this._toBuffer(info.data), { address: info.remoteAddress, port: info.remotePort });
 };
 
 Socket.prototype._handleIncomingErrorData = function(socketId, resultCode) {
@@ -256,3 +281,12 @@ Socket.prototype._handleIncomingErrorData = function(socketId, resultCode) {
   error.resultCode = resultCode;
   this.emit('error', error);
 };
+
+Socket.prototype._toBuffer = function (arrayBuffer) {
+  var buffer = new Buffer(arrayBuffer.byteLength);
+  var view = new Uint8Array(arrayBuffer);
+  for (var i = 0; i < buffer.length; ++i) {
+      buffer[i] = view[i];
+  }
+  return buffer;
+}

@@ -23,6 +23,7 @@ module.exports = function (opts) {
 
     socket.on('error', cb)
     socket.on('message', function (message, rinfo) {
+      console.log('internals -- message', message, rinfo);
       try {
         message = packets.decode(message)
       } catch (err) {

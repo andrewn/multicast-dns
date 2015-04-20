@@ -1,7 +1,8 @@
 var mdns = require('./')
 var tape = require('tape')
-var dgram = require('dgram')
+var dgram = require('./chrome-dgram')
 
+// Find a free port
 var port = function (cb) {
   var s = dgram.createSocket('udp4')
   s.bind(0, function () {
