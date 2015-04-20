@@ -29,17 +29,6 @@ function Socket(type, listener, host, io_options) {
     host = listener;
     io_options = host;
   }
-
-  // io_options = io_options || {};
-
-  // //alows muliple socket on one browser
-  // io_options['force new connection'] = true;
-
-  // //use sio manespaceing
-  // host = (host || '') + '/simudp';
-
-  // //connect socket.io
-  // this.sio = io.connect(host, io_options);
 }
 util.inherits(Socket, events.EventEmitter);
 
@@ -47,7 +36,6 @@ exports.Socket = Socket;
 exports.createSocket = function(type, listener) {
   return new Socket(type, listener);
 };
-
 
 Socket.prototype.bind = function(/* options[, callback] or port[, address][, callback]*/) {
   var self = this,
@@ -65,6 +53,9 @@ Socket.prototype.bind = function(/* options[, callback] or port[, address][, cal
 
   console.log('bind: ', port, address, typeof callback)
 
+  if (typeof callback === 'function')
+    self.once('listening', callback);
+
   if(this._listening)
     throw new Error('already listening');
 
@@ -73,76 +64,52 @@ Socket.prototype.bind = function(/* options[, callback] or port[, address][, cal
 
   this._binding = true;
 
-  chrome.sockets.udp.create(
-    {
-      // persistent: Flag indicating if the socket is left open when the event page of the application is unloaded
-      // name: An application-defined string associated with the socket.
-      // bufferSize: The size of the buffer used to receive data. The default value is 4096.
-    },
-    function (createInfo) {
-      console.log('Chrome: socket created', createInfo.socketId);
-      self._socketId = createInfo.socketId;
-      chrome.sockets.udp.bind(
-        self._socketId,
-        address || '0.0.0.0',
-        port,
-        function (result) {
-          console.log('Chrome: socket bound', result);
-        }
-      );
-    }
-  );
+  this._bindingPromise = new Promise(function (resolve, reject) {
+    chrome.sockets.udp.create(
+      {
+        // persistent: Flag indicating if the socket is left open when the event page of the application is unloaded
+        // name: An application-defined string associated with the socket.
+        // bufferSize: The size of the buffer used to receive data. The default value is 4096.
+      },
+      function (createInfo) {
+        console.log('Chrome: socket created', createInfo.socketId);
+        self._socketId = createInfo.socketId;
+        self.emit('_created');
+        chrome.sockets.udp.bind(
+          self._socketId,
+          address || '0.0.0.0',
+          port,
+          function (result) {
+            console.log('Chrome: socket bound', result);
 
-  // this.sio.emit('bind', {
-  //   type    : this.type,
-  //   port    : port,
-  //   address : address
-  // });
+            // Add listener for incoming UDP messages
+            self._attachIncomingListeners();
 
-  // this.sio.on('listening', function(address) {
-  //   //set address
-  //   self._address = address;
-
-  //   self._binding = false;
-  //   self._listening = true;
-
-  //   self.emit('listening');
-    
-  //   //proxy incoming messages
-  //   self.sio.on('dgram-message', function(message) {
-  //     self.emit('message',
-  //       new Buffer(message.msg, 'ascii'),
-  //       message.rinfo);
-  //   });
-
-  //   //proxy error
-  //   self.sio.on('error', function(error) {
-  //     self.emit('error', error);
-  //   });
-
-  //   //disconnection
-  //   self.sio.on('disconnect', function() {
-  //     self.emit('close');
-  //     self.removeAllListeners();
-  //   });
-  // });
+            resolve();
+          }
+        );
+      }
+    );
+  });
 };
 
 Socket.prototype.send = function(buffer, offset, length, port, address, callback) {
-/*
-  var self = this;
-
-  //we are not listening : bind and then send when listening
-  if(!this._listening) {
-    if(!this._binding)
-      this.bind();
-
-    var _args = arguments;
-    this.once('listening', function() {
-      self.send.apply(self, _args);
-    });
-    return;
+  var self = this,
+      args = arguments;
+  if (!this._bindingPromise) {
+    console.log('no binding promise, calling bind')
+    // will create the bindingPromise
+    this.bind();
   }
+  this._bindingPromise
+    .then(function () {
+      console.log('call private send');
+      self._send.apply(self, args);
+    });
+};
+
+Socket.prototype._send = function(buffer, offset, length, port, address, callback) {
+  var self = this;
 
   //accept buffer as string
   buffer = (typeof buffer === 'string') ? new Buffer(buffer) : buffer;
@@ -153,27 +120,25 @@ Socket.prototype.send = function(buffer, offset, length, port, address, callback
   if (offset + length > buffer.length)
     throw new Error('Offset + length beyond buffer length');
 
-  //send it on wire
-  this.sio.emit('dgram-message', {
-    buffer  : buffer.toString('ascii'),
-    offset  : offset,
-    length  : length,
-    port    : port,
-    address : address
-  });
-
-  if(callback)
-    callback.call(null);
-*/
+  chrome.sockets.udp.send(
+    this._socketId,
+    /* ArrayBuffer */ buffer.toArrayBuffer(),
+    address,
+    port,
+    function (sendInfo) {
+      console.log('Chrome.send() result:', sendInfo.result, ', bytesSent: ', sendInfo.bytesSent);
+      if (typeof callback === 'function') {
+        callback();
+      }
+    }
+  );
 };
 
 
 Socket.prototype.close = function() {
-/*
-  this.sio.disconnect();
-  this.emit('close');
+  chrome.sockets.udp.close(this._socketId/*, function callback*/);
   this.removeAllListeners();
-*/
+  this.emit('close');
 };
 
 
@@ -188,25 +153,105 @@ Socket.prototype.address = function() {
 // not implemented methods
 
 Socket.prototype.setBroadcast = function(arg) {
-  throw new Error('not implemented');
+  console.log('setBroadcast', arg);
+  chrome.sockets.udp.setBroadcast(
+    this._socketId,
+    arg,
+    function (result) {
+      console.log('Chrome.setBroadcast()', arg, ' result: ', result);
+    }
+  );
+  // throw new Error('not implemented');
 };
 
 Socket.prototype.setTTL = function(arg) {
+  console.log('setTTL', arg);
   throw new Error('not implemented');
 };
 
 Socket.prototype.setMulticastTTL = function(arg) {
-  throw new Error('not implemented');
+  if (!this._socketId) {
+    // defer until socket connected
+    this.once('_created', function () {
+      this.setMulticastTTL(arg);
+    });
+  } else {
+    console.log('setMulticastTTL', arg);
+    chrome.sockets.udp.setMulticastTimeToLive(
+      this._socketId,
+      arg,
+      function (result) {
+        console.log('Chrome.setMulticastTimeToLive()', arg, ' result: ', result);
+      }
+    );
+    // throw new Error('not implemented');
+  }
 };
 
 Socket.prototype.setMulticastLoopback = function(arg) {
-  throw new Error('not implemented');
+if (!this._socketId) {
+    // defer until socket connected
+    this.once('_created', function () {
+      this.setMulticastLoopback(arg);
+    });
+  } else {
+    console.log('setMulticastLoopback', arg);
+    chrome.sockets.udp.setMulticastLoopbackMode(
+      this._socketId,
+      arg,
+      function (result) {
+        console.log('Chrome.setMulticastLoopbackMode()', arg, ' result: ', result);
+      }
+    );
+    // throw new Error('not implemented');
+  }
 };
 
-Socket.prototype.addMembership = function(multicastAddress, nterfaceAddress) {
-  throw new Error('not implemented');
+Socket.prototype.addMembership = function(multicastAddress, interfaceAddress) {
+  console.log('addMembership', multicastAddress, interfaceAddress);
+  chrome.sockets.udp.joinGroup(
+    this._socketId,
+    multicastAddress,
+    function (result) {
+      console.log('Chrome.joinGroup()', multicastAddress, ' result: ', result);
+    }
+  );
+  // throw new Error('not implemented');
 };
 
 Socket.prototype.dropMembership = function(multicastAddress, interfaceAddress) {
-  throw new Error('not implemented');
+  console.log('dropMembership', multicastAddress, interfaceAddress);
+  chrome.sockets.udp.leaveGroup(
+    this._socketId,
+    multicastAddress,
+    function (result) {
+      console.log('Chrome.leaveGroup()', multicastAddress, ' result: ', result);
+    }
+  );
+  // throw new Error('not implemented');
+};
+
+Socket.prototype._attachIncomingListeners = function() {
+  chrome.sockets.udp.onReceive.addListener(this._handleIncomingData.bind(this));
+  chrome.sockets.udp.onReceiveError.addListener(this._handleIncomingErrorData.bind(this));
+  console.log('emit listeners');
+  this.emit('listening');
+};
+
+Socket.prototype._handleIncomingData = function(socketId, data, remoteAddress, remotePort) {
+  if (this._socketId == null) {
+    throw new Error('can\'t filter incoming data since no socketid');
+  }
+  if (this._socketId !== socketId) { return; }
+  this.emit('message', data, { address: remoteAddress, port: remotePort });
+};
+
+Socket.prototype._handleIncomingErrorData = function(socketId, resultCode) {
+  if (this._socketId == null) {
+    throw new Error('can\'t filter incoming error data since no socketid');
+  }
+  if (this._socketId !== socketId) { return; }
+  var error = new Error('incoming data error');
+  error.resultCode = resultCode;
+  this.emit('error', error);
 };

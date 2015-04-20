@@ -36,11 +36,15 @@ module.exports = function (opts) {
       if (message.type === 'response') that.emit('response', message, rinfo)
     })
 
+    /* On Chrome, these must be called before binding the socket */
+    if (opts.multicast !== false) {
+      socket.setMulticastTTL(opts.ttl || 255)
+      socket.setMulticastLoopback(opts.loopback !== false)
+    }
+
     socket.bind(port, function () {
       if (opts.multicast !== false) {
         socket.addMembership(ip, opts.interface)
-        socket.setMulticastTTL(opts.ttl || 255)
-        socket.setMulticastLoopback(opts.loopback !== false)
       }
 
       socket.removeListener('error', cb)
