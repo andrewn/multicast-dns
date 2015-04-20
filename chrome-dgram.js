@@ -7,6 +7,7 @@
 var util   = require('util');
 var events = require('events');
 var Buffer = require('buffer').Buffer;
+var Promise = require('es6-promise').Promise;
 
 function Socket(type, listener, host, io_options) {
   console.log('Create new Socket', type, host);
