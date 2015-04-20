@@ -1,5 +1,5 @@
 var packets = require('./packets')
-var dgram = require('dgram')
+var dgram = require('./chrome-dgram')
 var thunky = require('thunky')
 var events = require('events')
 

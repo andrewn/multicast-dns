@@ -1,0 +1,27 @@
+{
+  "name": "Multicast DNS",
+  "description": "Multicast DNS port from node",
+  "version": "0.0.1",
+  "manifest_version": 2,
+  "permissions": ["system.network", "*", "mdns"],
+  "sockets": {
+    "tcpServer": {
+      "listen": ""
+    },
+    "tcp": {
+      "connect": "*"
+    },
+    "udp": {
+      "send": "*",
+      "bind": "*",
+      "multicastMembership": ""
+    }
+  },
+  "app": {
+    "background": {
+      "scripts": [
+        "dist/background.js"
+      ]
+    }
+  }
+}

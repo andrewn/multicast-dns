@@ -4,6 +4,8 @@
   "description": "Low level multicast-dns implementation in pure javascript",
   "main": "index.js",
   "scripts": {
+    "build": "./node_modules/.bin/browserify -v background.js -o dist/background.js",
+    "dev": "./node_modules/.bin/watchify -v -d background.js -o dist/background.js",
     "test": "standard && tape test.js"
   },
   "bin": "cli.js",
@@ -12,7 +14,9 @@
   },
   "devDependencies": {
     "standard": "^3.3.2",
-    "tape": "^3.0.3"
+    "tape": "^3.0.3",
+    "watchify": "~3.1.1",
+    "browserify": "~9.0.8"
   },
   "repository": {
     "type": "git",
