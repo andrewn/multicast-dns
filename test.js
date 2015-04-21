@@ -1,6 +1,6 @@
 var mdns = require('./')
 var tape = require('tape')
-var dgram = require('./chrome-dgram')
+var dgram = require('dgram')
 
 // Find a free port
 var port = function (cb) {

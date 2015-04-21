@@ -1,5 +1,5 @@
 var packets = require('./packets')
-var dgram = require('./chrome-dgram')
+var dgram = require('dgram')
 var thunky = require('thunky')
 var events = require('events')
 
@@ -11,6 +11,12 @@ module.exports = function (opts) {
   var that = new events.EventEmitter()
   var ip = opts.ip || opts.host || '224.0.0.251'
   var port = opts.port || 5353
+  var isChromeAppPlatform = false
+
+  if (opts.platform === module.exports.platform.chromeApp) {
+    dgram = require('./chrome-dgram')
+    isChromeAppPlatform = true
+  }
 
   var bind = thunky(function (cb) {
     var socket = dgram.createSocket({
@@ -38,7 +44,7 @@ module.exports = function (opts) {
     })
 
     /* On Chrome, these must be called before binding the socket */
-    if (opts.multicast !== false) {
+    if (opts.multicast !== false && isChromeAppPlatform) {
       socket.setMulticastTTL(opts.ttl || 255)
       socket.setMulticastLoopback(opts.loopback !== false)
     }
@@ -46,6 +52,12 @@ module.exports = function (opts) {
     socket.bind(port, function () {
       if (opts.multicast !== false) {
         socket.addMembership(ip, opts.interface)
+      }
+
+      /* On node, these must be called after binding the socket */
+      if (opts.multicast !== false && !isChromeAppPlatform) {
+        socket.setMulticastTTL(opts.ttl || 255)
+        socket.setMulticastLoopback(opts.loopback !== false)
       }
 
       socket.removeListener('error', cb)
@@ -100,3 +112,8 @@ module.exports = function (opts) {
 
   return that
 }
+
+module.exports.platform = {
+  chromeApp: 'chromeApp',
+  node: 'node'
+};

@@ -1,6 +1,8 @@
 console.log('Init');
 
-var mdns = require('./')({ port: 5406 });
+var multicastDNS = require('./')
+
+var mdns = multicastDNS({ port: 5406, platform: multicastDNS.platform.chromeApp });
 
 mdns.on('warning', function (err) {
   console.log(err.stack)
